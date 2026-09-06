@@ -1,0 +1,194 @@
+.panel {
+  background: color-mix(in srgb, var(--paper) 92%, white);
+  border: 1px solid var(--line);
+  padding: clamp(1rem, 2vw, 1.5rem);
+  box-shadow: var(--shadow-soft);
+}
+
+.composer {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--wash);
+}
+
+.composer h2 {
+  margin: 0 0 0.25rem;
+  font-family: var(--display);
+  font-size: 1.2rem;
+  color: var(--ink);
+}
+
+.composer label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.composer input,
+.composer select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 0.65rem 0.75rem;
+}
+
+.composer input:focus,
+.composer select:focus {
+  outline: 2px solid color-mix(in srgb, var(--teal) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.seg button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.seg button.on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.primary {
+  font: inherit;
+  font-weight: 700;
+  border: none;
+  background: var(--amber);
+  color: var(--ink);
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.primary.sm {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.ghost {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+}
+
+.ghost:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.ghost.icon {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+.eyebrow {
+  margin: 0 0 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.local-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.pos {
+  color: var(--teal);
+}
+
+.neg {
+  color: var(--coral);
+}
+
+.bar-track {
+  height: 0.45rem;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+
+.dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.swatch {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch.on {
+  border-color: var(--ink);
+  outline: 2px solid var(--paper);
+}
+
+.badge {
+  margin-left: 0.45rem;
+  font-style: normal;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+  vertical-align: middle;
+}
+
+.badge.done {
+  color: var(--teal);
+}
+
+.stats-row .stat.soft-stat strong {
+  color: var(--ink);
+}

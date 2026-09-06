@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { BudgetTool } from './tools/budget/BudgetTool'
+import { DebtsTool } from './tools/debts/DebtsTool'
+import { SavingsTool } from './tools/savings/SavingsTool'
 import { TOOLS, type ToolId } from './tools/registry'
 
 function App() {
@@ -9,6 +11,22 @@ function App() {
     return (
       <div className="app-shell">
         <BudgetTool onBack={() => setActive(null)} />
+      </div>
+    )
+  }
+
+  if (active === 'debts') {
+    return (
+      <div className="app-shell">
+        <DebtsTool onBack={() => setActive(null)} />
+      </div>
+    )
+  }
+
+  if (active === 'savings') {
+    return (
+      <div className="app-shell">
+        <SavingsTool onBack={() => setActive(null)} />
       </div>
     )
   }

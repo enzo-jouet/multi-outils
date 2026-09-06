@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { downloadJson } from '../../lib/storage'
-import { loadBudget, saveBudget } from './storage'
 import {
+  addDaysISO,
+  endOfWeekISO,
   formatEUR,
   formatMonthLabel,
   monthKey,
   shiftMonth,
   todayISO,
   uid,
+} from '../../lib/format'
+import { loadBudget, saveBudget } from './storage'
+import {
+  ensureRecurrentTransactions,
+  migrateBudget,
+  type Account,
   type BudgetState,
   type Category,
   type CategoryKind,
+  type Recurrence,
   type Transaction,
+  type TxStatus,
 } from './types'
 import './BudgetTool.css'
 
@@ -26,26 +35,46 @@ const CATEGORY_COLORS = [
   '#6c757d',
 ]
 
-type Props = {
-  onBack: () => void
-}
+type Tab = 'overview' | 'list' | 'categories' | 'accounts' | 'recurrents'
+
+type Props = { onBack: () => void }
 
 export function BudgetTool({ onBack }: Props) {
   const [state, setState] = useState<BudgetState>(() => loadBudget())
   const [month, setMonth] = useState(() => monthKey(todayISO()))
-  const [tab, setTab] = useState<'overview' | 'list' | 'categories'>('overview')
+  const [tab, setTab] = useState<Tab>('overview')
+  const [listFilter, setListFilter] = useState<'all' | 'planned' | 'confirmed'>(
+    'all',
+  )
 
   const [txType, setTxType] = useState<CategoryKind>('expense')
   const [txAmount, setTxAmount] = useState('')
   const [txLabel, setTxLabel] = useState('')
+  const [txNote, setTxNote] = useState('')
   const [txCategoryId, setTxCategoryId] = useState(
     () => loadBudget().categories.find((c) => c.kind === 'expense')?.id ?? '',
   )
+  const [txAccountId, setTxAccountId] = useState(
+    () => loadBudget().accounts[0]?.id ?? '',
+  )
   const [txDate, setTxDate] = useState(todayISO())
+  const [txStatus, setTxStatus] = useState<TxStatus>('confirmed')
 
   const [catName, setCatName] = useState('')
   const [catKind, setCatKind] = useState<CategoryKind>('expense')
   const [catColor, setCatColor] = useState(CATEGORY_COLORS[0])
+  const [catBudget, setCatBudget] = useState('')
+
+  const [accName, setAccName] = useState('')
+  const [accColor, setAccColor] = useState(CATEGORY_COLORS[3])
+
+  const [recType, setRecType] = useState<CategoryKind>('expense')
+  const [recAmount, setRecAmount] = useState('')
+  const [recLabel, setRecLabel] = useState('')
+  const [recNote, setRecNote] = useState('')
+  const [recDay, setRecDay] = useState('1')
+  const [recCategoryId, setRecCategoryId] = useState('')
+  const [recAccountId, setRecAccountId] = useState('')
 
   useEffect(() => {
     saveBudget(state)
@@ -55,30 +84,76 @@ export function BudgetTool({ onBack }: Props) {
     () => state.categories.filter((c) => c.kind === txType),
     [state.categories, txType],
   )
+  const recCategories = useMemo(
+    () => state.categories.filter((c) => c.kind === recType),
+    [state.categories, recType],
+  )
 
   const resolvedCategoryId = categoriesForType.some((c) => c.id === txCategoryId)
     ? txCategoryId
     : (categoriesForType[0]?.id ?? '')
+  const resolvedAccountId = state.accounts.some((a) => a.id === txAccountId)
+    ? txAccountId
+    : (state.accounts[0]?.id ?? '')
+  const resolvedRecCategory =
+    recCategories.find((c) => c.id === recCategoryId)?.id ??
+    recCategories[0]?.id ??
+    ''
+  const resolvedRecAccount =
+    state.accounts.find((a) => a.id === recAccountId)?.id ??
+    state.accounts[0]?.id ??
+    ''
 
   const monthTx = useMemo(
     () =>
       state.transactions
         .filter((t) => monthKey(t.date) === month)
-        .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)),
+        .sort(
+          (a, b) =>
+            b.date.localeCompare(a.date) ||
+            b.createdAt.localeCompare(a.createdAt),
+        ),
     [state.transactions, month],
   )
 
-  const income = monthTx
-    .filter((t) => t.type === 'income')
-    .reduce((s, t) => s + t.amount, 0)
-  const expense = monthTx
-    .filter((t) => t.type === 'expense')
-    .reduce((s, t) => s + t.amount, 0)
-  const balance = income - expense
+  const confirmed = monthTx.filter((t) => t.status === 'confirmed')
+  const planned = monthTx.filter((t) => t.status === 'planned')
+
+  const sum = (list: Transaction[], type: CategoryKind) =>
+    list.filter((t) => t.type === type).reduce((s, t) => s + t.amount, 0)
+
+  const realIncome = sum(confirmed, 'income')
+  const realExpense = sum(confirmed, 'expense')
+  const realBalance = realIncome - realExpense
+
+  const projIncome = sum(monthTx, 'income')
+  const projExpense = sum(monthTx, 'expense')
+  const projBalance = projIncome - projExpense
+
+  const today = todayISO()
+  const weekEnd = endOfWeekISO(today)
+  const upcomingReminders = state.transactions.filter(
+    (t) => t.status === 'planned' && t.date <= addDaysISO(today, 7),
+  )
+  const reminders = {
+    upcoming: upcomingReminders,
+    overdue: upcomingReminders.filter((t) => t.date < today),
+    thisWeek: upcomingReminders.filter(
+      (t) => t.date >= today && t.date <= weekEnd,
+    ),
+  }
+
+  function goMonth(delta: number) {
+    setMonth((m) => {
+      const next = shiftMonth(m, delta)
+      setState((s) => ensureRecurrentTransactions(s, next))
+      return next
+    })
+  }
 
   const byCategory = useMemo(() => {
     const map = new Map<string, number>()
-    for (const t of monthTx) {
+    for (const t of confirmed) {
       if (t.type !== 'expense') continue
       map.set(t.categoryId, (map.get(t.categoryId) ?? 0) + t.amount)
     }
@@ -86,34 +161,72 @@ export function BudgetTool({ onBack }: Props) {
       .map(([categoryId, total]) => ({
         category: state.categories.find((c) => c.id === categoryId),
         total,
+        limit: state.categoryBudgets.find((b) => b.categoryId === categoryId)
+          ?.monthlyLimit,
       }))
       .filter((x) => x.category)
       .sort((a, b) => b.total - a.total)
-  }, [monthTx, state.categories])
+  }, [confirmed, state.categories, state.categoryBudgets])
+
+  const accountBalances = useMemo(() => {
+    return state.accounts.map((acc) => {
+      let real = 0
+      let projected = 0
+      for (const t of state.transactions) {
+        if (t.accountId !== acc.id) continue
+        const signed = t.type === 'income' ? t.amount : -t.amount
+        if (t.status === 'confirmed') real += signed
+        projected += signed
+      }
+      return { account: acc, real, projected }
+    })
+  }, [state.accounts, state.transactions])
+
+  const filteredList = monthTx.filter((t) =>
+    listFilter === 'all' ? true : t.status === listFilter,
+  )
+
+  function patchState(updater: (s: BudgetState) => BudgetState) {
+    setState(updater)
+  }
 
   function addTransaction(e: FormEvent) {
     e.preventDefault()
     const amount = Number(txAmount.replace(',', '.'))
-    if (!amount || amount <= 0 || !resolvedCategoryId) return
+    if (!amount || amount <= 0 || !resolvedCategoryId || !resolvedAccountId) return
 
     const next: Transaction = {
       id: uid('tx'),
       type: txType,
       categoryId: resolvedCategoryId,
+      accountId: resolvedAccountId,
       amount,
       label: txLabel.trim() || (txType === 'expense' ? 'Dépense' : 'Rentrée'),
+      note: txNote.trim(),
       date: txDate,
+      status: txDate > todayISO() ? 'planned' : txStatus,
       createdAt: new Date().toISOString(),
     }
 
-    setState((s) => ({ ...s, transactions: [next, ...s.transactions] }))
+    patchState((s) => ({ ...s, transactions: [next, ...s.transactions] }))
     setTxAmount('')
     setTxLabel('')
+    setTxNote('')
     setTxDate(todayISO())
+    setTxStatus('confirmed')
+  }
+
+  function confirmTransaction(id: string) {
+    patchState((s) => ({
+      ...s,
+      transactions: s.transactions.map((t) =>
+        t.id === id ? { ...t, status: 'confirmed' as const } : t,
+      ),
+    }))
   }
 
   function removeTransaction(id: string) {
-    setState((s) => ({
+    patchState((s) => ({
       ...s,
       transactions: s.transactions.filter((t) => t.id !== id),
     }))
@@ -129,8 +242,29 @@ export function BudgetTool({ onBack }: Props) {
       kind: catKind,
       color: catColor,
     }
-    setState((s) => ({ ...s, categories: [...s.categories, next] }))
+    const limit = Number(catBudget.replace(',', '.'))
+    patchState((s) => ({
+      ...s,
+      categories: [...s.categories, next],
+      categoryBudgets:
+        limit > 0
+          ? [...s.categoryBudgets, { categoryId: next.id, monthlyLimit: limit }]
+          : s.categoryBudgets,
+    }))
     setCatName('')
+    setCatBudget('')
+  }
+
+  function setBudgetLimit(categoryId: string, value: string) {
+    const limit = Number(value.replace(',', '.'))
+    patchState((s) => {
+      const others = s.categoryBudgets.filter((b) => b.categoryId !== categoryId)
+      if (!limit || limit <= 0) return { ...s, categoryBudgets: others }
+      return {
+        ...s,
+        categoryBudgets: [...others, { categoryId, monthlyLimit: limit }],
+      }
+    })
   }
 
   function removeCategory(id: string) {
@@ -141,32 +275,104 @@ export function BudgetTool({ onBack }: Props) {
       )
       return
     }
-    setState((s) => ({
+    patchState((s) => ({
       ...s,
       categories: s.categories.filter((c) => c.id !== id),
+      categoryBudgets: s.categoryBudgets.filter((b) => b.categoryId !== id),
+      recurrents: s.recurrents.filter((r) => r.categoryId !== id),
     }))
   }
 
-  function categoryName(id: string) {
-    return state.categories.find((c) => c.id === id)?.name ?? '—'
+  function addAccount(e: FormEvent) {
+    e.preventDefault()
+    const name = accName.trim()
+    if (!name) return
+    const next: Account = { id: uid('acc'), name, color: accColor }
+    patchState((s) => ({ ...s, accounts: [...s.accounts, next] }))
+    setAccName('')
   }
 
-  function categoryColor(id: string) {
-    return state.categories.find((c) => c.id === id)?.color ?? '#6c757d'
+  function removeAccount(id: string) {
+    if (state.accounts.length <= 1) {
+      window.alert('Il faut au moins un compte.')
+      return
+    }
+    const used = state.transactions.some((t) => t.accountId === id)
+    if (used) {
+      window.alert('Ce compte a des opérations. Réassignez-les d’abord.')
+      return
+    }
+    patchState((s) => ({
+      ...s,
+      accounts: s.accounts.filter((a) => a.id !== id),
+      recurrents: s.recurrents.filter((r) => r.accountId !== id),
+    }))
+  }
+
+  function addRecurrence(e: FormEvent) {
+    e.preventDefault()
+    const amount = Number(recAmount.replace(',', '.'))
+    const day = Number(recDay)
+    if (!amount || amount <= 0 || !resolvedRecCategory || !resolvedRecAccount) return
+    if (!day || day < 1 || day > 31) return
+
+    const next: Recurrence = {
+      id: uid('rec'),
+      type: recType,
+      categoryId: resolvedRecCategory,
+      accountId: resolvedRecAccount,
+      amount,
+      label: recLabel.trim() || (recType === 'expense' ? 'Récurrent' : 'Salaire'),
+      note: recNote.trim(),
+      dayOfMonth: day,
+      active: true,
+    }
+
+    patchState((s) => {
+      const withRec = { ...s, recurrents: [...s.recurrents, next] }
+      return ensureRecurrentTransactions(
+        ensureRecurrentTransactions(withRec, month),
+        shiftMonth(month, 1),
+      )
+    })
+    setRecAmount('')
+    setRecLabel('')
+    setRecNote('')
+  }
+
+  function toggleRecurrence(id: string) {
+    patchState((s) => ({
+      ...s,
+      recurrents: s.recurrents.map((r) =>
+        r.id === id ? { ...r, active: !r.active } : r,
+      ),
+    }))
+  }
+
+  function removeRecurrence(id: string) {
+    patchState((s) => ({
+      ...s,
+      recurrents: s.recurrents.filter((r) => r.id !== id),
+    }))
+  }
+
+  function nameOf(list: { id: string; name: string }[], id: string) {
+    return list.find((x) => x.id === id)?.name ?? '—'
+  }
+
+  function colorOf(list: { id: string; color: string }[], id: string) {
+    return list.find((x) => x.id === id)?.color ?? '#6c757d'
   }
 
   function exportData() {
-    downloadJson(`budget-${month}.json`, state)
+    downloadJson(`budget-export.json`, state)
   }
 
   function importData(file: File) {
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result)) as BudgetState
-        if (!Array.isArray(parsed.categories) || !Array.isArray(parsed.transactions)) {
-          throw new Error('invalid')
-        }
+        const parsed = JSON.parse(String(reader.result))
         if (
           !window.confirm(
             'Remplacer toutes les données budget locales par ce fichier ?',
@@ -174,7 +380,7 @@ export function BudgetTool({ onBack }: Props) {
         ) {
           return
         }
-        setState(parsed)
+        setState(migrateBudget(parsed))
       } catch {
         window.alert('Fichier invalide.')
       }
@@ -197,7 +403,7 @@ export function BudgetTool({ onBack }: Props) {
             type="button"
             className="ghost icon"
             aria-label="Mois précédent"
-            onClick={() => setMonth((m) => shiftMonth(m, -1))}
+            onClick={() => goMonth(-1)}
           >
             ‹
           </button>
@@ -206,19 +412,45 @@ export function BudgetTool({ onBack }: Props) {
             type="button"
             className="ghost icon"
             aria-label="Mois suivant"
-            onClick={() => setMonth((m) => shiftMonth(m, 1))}
+            onClick={() => goMonth(1)}
           >
             ›
           </button>
         </div>
       </header>
 
+      {reminders.upcoming.length > 0 && (
+        <aside className="reminder" role="status">
+          <strong>
+            {reminders.upcoming.length} opération
+            {reminders.upcoming.length > 1 ? 's' : ''} à confirmer
+          </strong>
+          <span>
+            {reminders.overdue.length > 0 &&
+              `${reminders.overdue.length} en retard · `}
+            {reminders.thisWeek.length} cette semaine
+          </span>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setTab('list')
+              setListFilter('planned')
+            }}
+          >
+            Voir
+          </button>
+        </aside>
+      )}
+
       <nav className="tabs" aria-label="Sections budget">
         {(
           [
             ['overview', 'Vue globale'],
             ['list', 'Opérations'],
+            ['recurrents', 'Récurrents'],
             ['categories', 'Catégories'],
+            ['accounts', 'Comptes'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -234,57 +466,119 @@ export function BudgetTool({ onBack }: Props) {
 
       {tab === 'overview' && (
         <section className="panel overview">
-          <div className="stats">
+          <div className="stats dual">
             <article className="stat income">
-              <span>Rentrées</span>
-              <strong>{formatEUR(income)}</strong>
+              <span>Rentrées réelles</span>
+              <strong>{formatEUR(realIncome)}</strong>
             </article>
             <article className="stat expense">
-              <span>Dépenses</span>
-              <strong>{formatEUR(expense)}</strong>
+              <span>Dépenses réelles</span>
+              <strong>{formatEUR(realExpense)}</strong>
             </article>
-            <article className={`stat balance ${balance >= 0 ? 'pos' : 'neg'}`}>
-              <span>Solde du mois</span>
-              <strong>{formatEUR(balance)}</strong>
+            <article className={`stat balance ${realBalance >= 0 ? 'pos' : 'neg'}`}>
+              <span>Solde réel</span>
+              <strong>{formatEUR(realBalance)}</strong>
+            </article>
+            <article className="stat soft">
+              <span>Rentrées prévues</span>
+              <strong>{formatEUR(projIncome)}</strong>
+            </article>
+            <article className="stat soft">
+              <span>Dépenses prévues</span>
+              <strong>{formatEUR(projExpense)}</strong>
+            </article>
+            <article className={`stat soft ${projBalance >= 0 ? 'pos' : 'neg'}`}>
+              <span>Solde projeté</span>
+              <strong>{formatEUR(projBalance)}</strong>
             </article>
           </div>
 
           <div className="split">
             <div>
-              <h2>Dépenses par catégorie</h2>
-              {byCategory.length === 0 ? (
-                <p className="muted">Aucune dépense ce mois-ci.</p>
+              <h2>Dépenses & budgets</h2>
+              {byCategory.length === 0 && state.categoryBudgets.length === 0 ? (
+                <p className="muted">Aucune dépense confirmée ce mois-ci.</p>
               ) : (
                 <ul className="bars">
-                  {byCategory.map(({ category, total }) => {
-                    const pct = expense > 0 ? (total / expense) * 100 : 0
-                    return (
-                      <li key={category!.id}>
-                        <div className="bar-meta">
-                          <span>
-                            <i
-                              className="dot"
-                              style={{ background: category!.color }}
+                  {state.categories
+                    .filter((c) => c.kind === 'expense')
+                    .map((category) => {
+                      const total =
+                        byCategory.find((b) => b.category?.id === category.id)
+                          ?.total ?? 0
+                      const limit = state.categoryBudgets.find(
+                        (b) => b.categoryId === category.id,
+                      )?.monthlyLimit
+                      if (total === 0 && !limit) return null
+                      const pctOfExpense =
+                        realExpense > 0 ? (total / realExpense) * 100 : 0
+                      const pctOfLimit = limit ? Math.min(100, (total / limit) * 100) : pctOfExpense
+                      const over = limit != null && total > limit
+                      return (
+                        <li key={category.id}>
+                          <div className="bar-meta">
+                            <span>
+                              <i
+                                className="dot"
+                                style={{ background: category.color }}
+                              />
+                              {category.name}
+                              {over && <em className="warn"> dépassé</em>}
+                            </span>
+                            <span>
+                              {formatEUR(total)}
+                              {limit != null && ` / ${formatEUR(limit)}`}
+                              {!limit && ` · ${pctOfExpense.toFixed(0)}%`}
+                            </span>
+                          </div>
+                          <div className="bar-track">
+                            <div
+                              className={`bar-fill${over ? ' over' : ''}`}
+                              style={{
+                                width: `${pctOfLimit}%`,
+                                background: over ? '#e76f51' : category.color,
+                              }}
                             />
-                            {category!.name}
-                          </span>
-                          <span>
-                            {formatEUR(total)} · {pct.toFixed(0)}%
-                          </span>
-                        </div>
-                        <div className="bar-track">
-                          <div
-                            className="bar-fill"
-                            style={{
-                              width: `${pct}%`,
-                              background: category!.color,
-                            }}
-                          />
-                        </div>
-                      </li>
-                    )
-                  })}
+                          </div>
+                        </li>
+                      )
+                    })}
                 </ul>
+              )}
+
+              {planned.length > 0 && (
+                <>
+                  <h2 className="spaced">À confirmer ({planned.length})</h2>
+                  <ul className="tx-list compact">
+                    {planned.slice(0, 5).map((t) => (
+                      <li key={t.id}>
+                        <i
+                          className="dot"
+                          style={{
+                            background: colorOf(state.categories, t.categoryId),
+                          }}
+                        />
+                        <div className="tx-main">
+                          <strong>{t.label}</strong>
+                          <span>
+                            {t.date}
+                            {t.date < today ? ' · en retard' : ''}
+                          </span>
+                        </div>
+                        <strong className={t.type === 'income' ? 'pos' : 'neg'}>
+                          {formatEUR(t.amount)}
+                        </strong>
+                        <button
+                          type="button"
+                          className="primary sm"
+                          onClick={() => confirmTransaction(t.id)}
+                        >
+                          Confirmer
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </div>
 
@@ -333,6 +627,14 @@ export function BudgetTool({ onBack }: Props) {
                 />
               </label>
               <label>
+                Note
+                <input
+                  value={txNote}
+                  onChange={(e) => setTxNote(e.target.value)}
+                  placeholder="Détail optionnel"
+                />
+              </label>
+              <label>
                 Catégorie
                 <select
                   value={resolvedCategoryId}
@@ -347,14 +649,53 @@ export function BudgetTool({ onBack }: Props) {
                 </select>
               </label>
               <label>
+                Compte
+                <select
+                  value={resolvedAccountId}
+                  onChange={(e) => setTxAccountId(e.target.value)}
+                  required
+                >
+                  {state.accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 Date
                 <input
                   type="date"
                   value={txDate}
-                  onChange={(e) => setTxDate(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setTxDate(next)
+                    if (next > todayISO()) setTxStatus('planned')
+                  }}
                   required
                 />
               </label>
+              {txDate <= todayISO() && (
+                <div className="seg">
+                  <button
+                    type="button"
+                    className={txStatus === 'confirmed' ? 'on' : ''}
+                    onClick={() => setTxStatus('confirmed')}
+                  >
+                    Confirmée
+                  </button>
+                  <button
+                    type="button"
+                    className={txStatus === 'planned' ? 'on' : ''}
+                    onClick={() => setTxStatus('planned')}
+                  >
+                    Planifiée
+                  </button>
+                </div>
+              )}
+              {txDate > todayISO() && (
+                <p className="hint">Date future → enregistrée comme planifiée.</p>
+              )}
               <button type="submit" className="primary">
                 Enregistrer
               </button>
@@ -367,9 +708,27 @@ export function BudgetTool({ onBack }: Props) {
         <section className="panel">
           <div className="list-actions">
             <h2>Opérations — {formatMonthLabel(month)}</h2>
-            <div className="row">
+            <div className="row wrap">
+              <div className="seg mini">
+                {(
+                  [
+                    ['all', 'Toutes'],
+                    ['planned', 'Planifiées'],
+                    ['confirmed', 'Confirmées'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={listFilter === id ? 'on' : ''}
+                    onClick={() => setListFilter(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <button type="button" className="ghost" onClick={exportData}>
-                Exporter JSON
+                Exporter
               </button>
               <label className="ghost file">
                 Importer
@@ -386,31 +745,188 @@ export function BudgetTool({ onBack }: Props) {
               </label>
             </div>
           </div>
-          {monthTx.length === 0 ? (
-            <p className="muted">Aucune opération ce mois-ci.</p>
+          {filteredList.length === 0 ? (
+            <p className="muted">Aucune opération.</p>
           ) : (
             <ul className="tx-list">
-              {monthTx.map((t) => (
-                <li key={t.id}>
+              {filteredList.map((t) => (
+                <li key={t.id} className={t.status === 'planned' ? 'planned' : ''}>
                   <i
                     className="dot"
-                    style={{ background: categoryColor(t.categoryId) }}
+                    style={{
+                      background: colorOf(state.categories, t.categoryId),
+                    }}
                   />
                   <div className="tx-main">
-                    <strong>{t.label}</strong>
+                    <strong>
+                      {t.label}
+                      {t.status === 'planned' && (
+                        <em className="badge">planifiée</em>
+                      )}
+                    </strong>
                     <span>
-                      {t.date} · {categoryName(t.categoryId)}
+                      {t.date} · {nameOf(state.categories, t.categoryId)} ·{' '}
+                      {nameOf(state.accounts, t.accountId)}
+                      {t.note ? ` · ${t.note}` : ''}
                     </span>
                   </div>
                   <strong className={t.type === 'income' ? 'pos' : 'neg'}>
                     {t.type === 'income' ? '+' : '−'}
                     {formatEUR(t.amount)}
                   </strong>
+                  {t.status === 'planned' ? (
+                    <button
+                      type="button"
+                      className="primary sm"
+                      onClick={() => confirmTransaction(t.id)}
+                    >
+                      Confirmer
+                    </button>
+                  ) : (
+                    <span className="spacer" />
+                  )}
                   <button
                     type="button"
                     className="ghost icon"
                     aria-label="Supprimer"
                     onClick={() => removeTransaction(t.id)}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {tab === 'recurrents' && (
+        <section className="panel">
+          <form className="composer inline" onSubmit={addRecurrence}>
+            <h2>Nouvelle récurrence mensuelle</h2>
+            <p className="hint">
+              Génère chaque mois une opération planifiée (loyer, salaire…).
+            </p>
+            <div className="seg">
+              <button
+                type="button"
+                className={recType === 'expense' ? 'on' : ''}
+                onClick={() => setRecType('expense')}
+              >
+                Dépense
+              </button>
+              <button
+                type="button"
+                className={recType === 'income' ? 'on' : ''}
+                onClick={() => setRecType('income')}
+              >
+                Rentrée
+              </button>
+            </div>
+            <label>
+              Libellé
+              <input
+                value={recLabel}
+                onChange={(e) => setRecLabel(e.target.value)}
+                placeholder="Ex. Loyer"
+                required
+              />
+            </label>
+            <label>
+              Montant (€)
+              <input
+                inputMode="decimal"
+                value={recAmount}
+                onChange={(e) => setRecAmount(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Jour du mois
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={recDay}
+                onChange={(e) => setRecDay(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Catégorie
+              <select
+                value={resolvedRecCategory}
+                onChange={(e) => setRecCategoryId(e.target.value)}
+              >
+                {recCategories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Compte
+              <select
+                value={resolvedRecAccount}
+                onChange={(e) => setRecAccountId(e.target.value)}
+              >
+                {state.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Note
+              <input
+                value={recNote}
+                onChange={(e) => setRecNote(e.target.value)}
+                placeholder="Optionnel"
+              />
+            </label>
+            <button type="submit" className="primary">
+              Créer
+            </button>
+          </form>
+
+          {state.recurrents.length === 0 ? (
+            <p className="muted">Aucune récurrence pour l’instant.</p>
+          ) : (
+            <ul className="tx-list">
+              {state.recurrents.map((r) => (
+                <li key={r.id}>
+                  <i
+                    className="dot"
+                    style={{ background: colorOf(state.categories, r.categoryId) }}
+                  />
+                  <div className="tx-main">
+                    <strong>
+                      {r.label}
+                      {!r.active && <em className="badge">pause</em>}
+                    </strong>
+                    <span>
+                      Le {r.dayOfMonth} · {nameOf(state.categories, r.categoryId)} ·{' '}
+                      {nameOf(state.accounts, r.accountId)}
+                      {r.note ? ` · ${r.note}` : ''}
+                    </span>
+                  </div>
+                  <strong className={r.type === 'income' ? 'pos' : 'neg'}>
+                    {formatEUR(r.amount)}
+                  </strong>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => toggleRecurrence(r.id)}
+                  >
+                    {r.active ? 'Pause' : 'Activer'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost icon"
+                    aria-label="Supprimer"
+                    onClick={() => removeRecurrence(r.id)}
                   >
                     ×
                   </button>
@@ -450,6 +966,17 @@ export function BudgetTool({ onBack }: Props) {
                 required
               />
             </label>
+            {catKind === 'expense' && (
+              <label>
+                Budget mensuel (€, optionnel)
+                <input
+                  inputMode="decimal"
+                  value={catBudget}
+                  onChange={(e) => setCatBudget(e.target.value)}
+                  placeholder="Ex. 300"
+                />
+              </label>
+            )}
             <div className="colors" role="listbox" aria-label="Couleur">
               {CATEGORY_COLORS.map((c) => (
                 <button
@@ -474,24 +1001,111 @@ export function BudgetTool({ onBack }: Props) {
                 <ul className="cat-list">
                   {state.categories
                     .filter((c) => c.kind === kind)
-                    .map((c) => (
-                      <li key={c.id}>
-                        <i className="dot" style={{ background: c.color }} />
-                        <span>{c.name}</span>
-                        <button
-                          type="button"
-                          className="ghost icon"
-                          aria-label={`Supprimer ${c.name}`}
-                          onClick={() => removeCategory(c.id)}
-                        >
-                          ×
-                        </button>
-                      </li>
-                    ))}
+                    .map((c) => {
+                      const limit = state.categoryBudgets.find(
+                        (b) => b.categoryId === c.id,
+                      )?.monthlyLimit
+                      return (
+                        <li key={c.id} className="cat-row">
+                          <i className="dot" style={{ background: c.color }} />
+                          <div className="tx-main">
+                            <span>{c.name}</span>
+                            {kind === 'expense' && (
+                              <label className="inline-limit">
+                                Plafond
+                                <input
+                                  inputMode="decimal"
+                                  defaultValue={limit ?? ''}
+                                  placeholder="—"
+                                  onBlur={(e) =>
+                                    setBudgetLimit(c.id, e.target.value)
+                                  }
+                                />
+                              </label>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="ghost icon"
+                            aria-label={`Supprimer ${c.name}`}
+                            onClick={() => removeCategory(c.id)}
+                          >
+                            ×
+                          </button>
+                        </li>
+                      )
+                    })}
                 </ul>
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {tab === 'accounts' && (
+        <section className="panel">
+          <form className="composer inline" onSubmit={addAccount}>
+            <h2>Nouveau compte</h2>
+            <label>
+              Nom
+              <input
+                value={accName}
+                onChange={(e) => setAccName(e.target.value)}
+                placeholder="Ex. Livret A"
+                required
+              />
+            </label>
+            <div className="colors">
+              {CATEGORY_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={accColor === c ? 'swatch on' : 'swatch'}
+                  style={{ background: c }}
+                  onClick={() => setAccColor(c)}
+                />
+              ))}
+            </div>
+            <button type="submit" className="primary">
+              Créer
+            </button>
+          </form>
+
+          <ul className="account-grid">
+            {accountBalances.map(({ account, real, projected }) => (
+              <li key={account.id}>
+                <header>
+                  <i className="dot" style={{ background: account.color }} />
+                  <strong>{account.name}</strong>
+                  <button
+                    type="button"
+                    className="ghost icon"
+                    aria-label={`Supprimer ${account.name}`}
+                    onClick={() => removeAccount(account.id)}
+                  >
+                    ×
+                  </button>
+                </header>
+                <p>
+                  <span>Réel</span>
+                  <strong className={real >= 0 ? 'pos' : 'neg'}>
+                    {formatEUR(real)}
+                  </strong>
+                </p>
+                <p>
+                  <span>Projeté</span>
+                  <strong className={projected >= 0 ? 'pos' : 'neg'}>
+                    {formatEUR(projected)}
+                  </strong>
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="hint">
+            Les soldes partent de 0 et suivent les opérations de chaque compte.
+            Pour un solde de départ, ajoutez une rentrée confirmée « Solde
+            initial ».
+          </p>
         </section>
       )}
 
