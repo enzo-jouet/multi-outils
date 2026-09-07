@@ -1,0 +1,93 @@
+.data-settings {
+  margin-top: 2rem;
+  animation: rise 0.45s ease both;
+}
+
+.data-settings h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--display);
+  font-size: 1.35rem;
+  color: var(--ink);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.settings-grid fieldset {
+  margin: 0;
+  border: 1px solid var(--line);
+  background: var(--wash);
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.settings-grid legend {
+  font-family: var(--display);
+  font-weight: 700;
+  color: var(--ink);
+  padding: 0 0.35rem;
+}
+
+.settings-grid label:not(.check) {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.settings-grid select,
+.settings-grid input[type='number'] {
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 0.55rem 0.65rem;
+}
+
+.check {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.check input {
+  margin-top: 0.2rem;
+}
+
+.meta-line {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.meta-line .err {
+  color: var(--coral);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.settings-msg {
+  margin: 0.85rem 0 0;
+  font-weight: 600;
+  color: var(--teal);
+}
+
+@media (max-width: 800px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}

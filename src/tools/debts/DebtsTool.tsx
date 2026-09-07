@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { formatEUR, todayISO } from '../../lib/format'
+import { syncDebtPayment } from '../../lib/bridge'
 import {
   createDebt,
   loadDebts,
@@ -63,22 +64,45 @@ export function DebtsTool({ onBack }: Props) {
     const raw = payAmounts[id] ?? ''
     const value = Number(raw.replace(',', '.'))
     if (!value || value <= 0) return
+    const debt = state.debts.find((d) => d.id === id)
+    if (!debt) return
+    const applied = Math.min(value, debt.amount - debt.paid)
+    if (applied <= 0) return
+
     setState((s) => ({
       debts: s.debts.map((d) => {
         if (d.id !== id) return d
-        const paid = Math.min(d.amount, d.paid + value)
+        const paid = Math.min(d.amount, d.paid + applied)
         return { ...d, paid, settled: paid >= d.amount }
       }),
     }))
     setPayAmounts((m) => ({ ...m, [id]: '' }))
+
+    syncDebtPayment({
+      debtId: debt.id,
+      person: debt.person,
+      direction: debt.direction,
+      amount: applied,
+    })
   }
 
   function settle(id: string) {
+    const debt = state.debts.find((d) => d.id === id)
+    if (!debt || debt.settled) return
+    const remaining = debt.amount - debt.paid
     setState((s) => ({
       debts: s.debts.map((d) =>
         d.id === id ? { ...d, paid: d.amount, settled: true } : d,
       ),
     }))
+    if (remaining > 0) {
+      syncDebtPayment({
+        debtId: debt.id,
+        person: debt.person,
+        direction: debt.direction,
+        amount: remaining,
+      })
+    }
   }
 
   function removeDebt(id: string) {
@@ -96,6 +120,10 @@ export function DebtsTool({ onBack }: Props) {
           <h1>Dettes</h1>
         </div>
       </header>
+      <p className="hint link-hint">
+        Si la liaison est active, chaque remboursement crée une opération dans
+        Budget.
+      </p>
 
       <div className="stats-row">
         <article className="stat income">

@@ -10,6 +10,13 @@ export function loadJson<T>(key: string, fallback: T): T {
 
 export function saveJson<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value))
+  queueMicrotask(() => {
+    void import('./backup')
+      .then((m) => m.scheduleAutoBackup())
+      .catch(() => {
+        /* ignore */
+      })
+  })
 }
 
 export function downloadJson(filename: string, data: unknown): void {

@@ -1,8 +1,12 @@
 import { useState } from 'react'
+import { DataSettings } from './components/DataSettings'
+import { startBackupScheduler } from './lib/backup'
 import { BudgetTool } from './tools/budget/BudgetTool'
 import { DebtsTool } from './tools/debts/DebtsTool'
 import { SavingsTool } from './tools/savings/SavingsTool'
 import { TOOLS, type ToolId } from './tools/registry'
+
+startBackupScheduler()
 
 function App() {
   const [active, setActive] = useState<ToolId | null>(null)
@@ -43,8 +47,8 @@ function App() {
           </div>
           <h1>Multi Outils</h1>
           <p>
-            Une boîte à outils du quotidien. Chaque outil garde vos données sur
-            cet appareil — rien n’est envoyé sur un serveur.
+            Une boîte à outils du quotidien. Les outils sont reliés entre eux ;
+            vos données restent sur cet appareil, avec sauvegarde automatique.
           </p>
         </div>
       </header>
@@ -74,6 +78,8 @@ function App() {
           )
         })}
       </ul>
+
+      <DataSettings onRestored={() => window.location.reload()} />
     </div>
   )
 }

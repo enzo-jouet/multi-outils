@@ -49,6 +49,11 @@ export type Transaction = {
   date: string
   status: TxStatus
   recurrenceId?: string
+  transferGroupId?: string
+  source?: {
+    tool: 'savings' | 'debts' | 'transfer'
+    refId?: string
+  }
   createdAt: string
 }
 
@@ -96,7 +101,13 @@ export function migrateBudget(raw: unknown): BudgetState {
   const base = emptyBudget()
   if (!raw || typeof raw !== 'object') return base
   const data = raw as Partial<BudgetState> & {
-    transactions?: Array<Partial<Transaction> & { id: string }>
+    transactions?: Array<
+      Partial<Transaction> & {
+        id: string
+        source?: Transaction['source']
+        transferGroupId?: string
+      }
+    >
   }
 
   const accounts =
@@ -122,6 +133,8 @@ export function migrateBudget(raw: unknown): BudgetState {
         date: t.date ?? todayISO(),
         status: t.status === 'planned' ? 'planned' : 'confirmed',
         recurrenceId: t.recurrenceId,
+        transferGroupId: t.transferGroupId,
+        source: t.source,
         createdAt: t.createdAt ?? new Date().toISOString(),
       }))
     : []

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { formatEUR } from '../../lib/format'
+import { syncSavingsMove } from '../../lib/bridge'
 import {
   GOAL_COLORS,
   createGoal,
@@ -58,14 +59,29 @@ export function SavingsTool({ onBack }: Props) {
     const raw = moves[id] ?? ''
     const value = Number(raw.replace(',', '.'))
     if (!value || value <= 0) return
+    const goal = state.goals.find((g) => g.id === id)
+    if (!goal) return
+
+    const nextCurrent = Math.max(
+      0,
+      Math.min(goal.target * 2, goal.current + sign * value),
+    )
+    const applied = Math.abs(nextCurrent - goal.current)
+    if (applied <= 0) return
+
     setState((s) => ({
-      goals: s.goals.map((g) => {
-        if (g.id !== id) return g
-        const next = Math.max(0, Math.min(g.target * 2, g.current + sign * value))
-        return { ...g, current: next }
-      }),
+      goals: s.goals.map((g) =>
+        g.id === id ? { ...g, current: nextCurrent } : g,
+      ),
     }))
     setMoves((m) => ({ ...m, [id]: '' }))
+
+    syncSavingsMove({
+      goalId: goal.id,
+      goalName: goal.name,
+      amount: applied,
+      sign,
+    })
   }
 
   function removeGoal(id: string) {
@@ -83,6 +99,10 @@ export function SavingsTool({ onBack }: Props) {
           <h1>Objectifs d’épargne</h1>
         </div>
       </header>
+      <p className="hint link-hint">
+        Si la liaison est active (réglages sur l’accueil), Ajouter / Retirer crée
+        un virement Budget entre vos comptes.
+      </p>
 
       <div className="stats-row">
         <article className="stat income">

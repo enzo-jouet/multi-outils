@@ -1,6 +1,6 @@
 # Multi Outils
 
-Boîte à outils du quotidien (React + Vite). **Toutes les données restent dans le navigateur** (`localStorage`).
+Boîte à outils du quotidien (React + Vite). **Données locales** + liaisons entre outils + sauvegarde auto.
 
 Site : https://enzo-jouet.github.io/multi-outils/
 
@@ -8,10 +8,24 @@ Site : https://enzo-jouet.github.io/multi-outils/
 
 | Outil | Statut |
 | --- | --- |
-| **Budget** — opérations planifiées/confirmées, récurrents, comptes, plafonds, notes | Disponible |
-| **Dettes** — on me doit / je dois, remboursements partiels | Disponible |
-| **Objectifs d’épargne** — jauges vers un montant | Disponible |
+| **Budget** — planifié/confirmé, récurrents, comptes, virements, plafonds | Disponible |
+| **Dettes** — remboursements liés au Budget | Disponible |
+| **Objectifs d’épargne** — virements Courant ↔ Épargne dans Budget | Disponible |
 | Habitudes, Courses, Notes, Abonnements | Bientôt |
+
+## Cohérence
+
+Sur l’accueil → **Données & cohérence** :
+
+- Épargne ↔ Budget (virements)
+- Dettes ↔ Budget (opérations)
+- Comptes utilisés pour chaque liaison
+
+## Sauvegarde
+
+1. Miroir **IndexedDB** à chaque changement
+2. **Fichier local** (Chrome / Edge) : « Lier un fichier » puis écriture auto + intervalle
+3. Téléchargement / restauration manuelle JSON
 
 ## Dev
 
@@ -19,7 +33,3 @@ Site : https://enzo-jouet.github.io/multi-outils/
 npm install
 npm run dev
 ```
-
-## GitHub Pages
-
-Déploiement automatique via Actions sur `main`.

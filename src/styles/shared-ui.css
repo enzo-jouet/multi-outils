@@ -185,9 +185,22 @@
   vertical-align: middle;
 }
 
-.badge.done {
-  color: var(--teal);
+.ghost.file {
+  display: inline-grid;
+  place-items: center;
+  cursor: pointer;
 }
+
+.hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.link-hint {
+  margin-top: -0.35rem;
+}
+
 
 .stats-row .stat.soft-stat strong {
   color: var(--ink);

@@ -22,6 +22,7 @@ import {
   type Transaction,
   type TxStatus,
 } from './types'
+import { createAccountTransfer, ensureLinkedCategories } from '../../lib/bridge'
 import './BudgetTool.css'
 
 const CATEGORY_COLORS = [
@@ -40,7 +41,9 @@ type Tab = 'overview' | 'list' | 'categories' | 'accounts' | 'recurrents'
 type Props = { onBack: () => void }
 
 export function BudgetTool({ onBack }: Props) {
-  const [state, setState] = useState<BudgetState>(() => loadBudget())
+  const [state, setState] = useState<BudgetState>(() =>
+    ensureLinkedCategories(loadBudget()),
+  )
   const [month, setMonth] = useState(() => monthKey(todayISO()))
   const [tab, setTab] = useState<Tab>('overview')
   const [listFilter, setListFilter] = useState<'all' | 'planned' | 'confirmed'>(
@@ -75,6 +78,11 @@ export function BudgetTool({ onBack }: Props) {
   const [recDay, setRecDay] = useState('1')
   const [recCategoryId, setRecCategoryId] = useState('')
   const [recAccountId, setRecAccountId] = useState('')
+
+  const [xferFrom, setXferFrom] = useState('')
+  const [xferTo, setXferTo] = useState('')
+  const [xferAmount, setXferAmount] = useState('')
+  const [xferLabel, setXferLabel] = useState('Virement')
 
   useEffect(() => {
     saveBudget(state)
@@ -118,16 +126,18 @@ export function BudgetTool({ onBack }: Props) {
 
   const confirmed = monthTx.filter((t) => t.status === 'confirmed')
   const planned = monthTx.filter((t) => t.status === 'planned')
+  const operating = (list: Transaction[]) =>
+    list.filter((t) => !t.transferGroupId)
 
   const sum = (list: Transaction[], type: CategoryKind) =>
     list.filter((t) => t.type === type).reduce((s, t) => s + t.amount, 0)
 
-  const realIncome = sum(confirmed, 'income')
-  const realExpense = sum(confirmed, 'expense')
+  const realIncome = sum(operating(confirmed), 'income')
+  const realExpense = sum(operating(confirmed), 'expense')
   const realBalance = realIncome - realExpense
 
-  const projIncome = sum(monthTx, 'income')
-  const projExpense = sum(monthTx, 'expense')
+  const projIncome = sum(operating(monthTx), 'income')
+  const projExpense = sum(operating(monthTx), 'expense')
   const projBalance = projIncome - projExpense
 
   const today = todayISO()
@@ -153,7 +163,7 @@ export function BudgetTool({ onBack }: Props) {
 
   const byCategory = useMemo(() => {
     const map = new Map<string, number>()
-    for (const t of confirmed) {
+    for (const t of operating(confirmed)) {
       if (t.type !== 'expense') continue
       map.set(t.categoryId, (map.get(t.categoryId) ?? 0) + t.amount)
     }
@@ -281,6 +291,22 @@ export function BudgetTool({ onBack }: Props) {
       categoryBudgets: s.categoryBudgets.filter((b) => b.categoryId !== id),
       recurrents: s.recurrents.filter((r) => r.categoryId !== id),
     }))
+  }
+
+  function submitTransfer(e: FormEvent) {
+    e.preventDefault()
+    const amount = Number(xferAmount.replace(',', '.'))
+    const from = xferFrom || state.accounts[0]?.id
+    const to = xferTo || state.accounts[1]?.id || state.accounts[0]?.id
+    if (!amount || amount <= 0 || !from || !to || from === to) return
+    createAccountTransfer({
+      fromAccountId: from,
+      toAccountId: to,
+      amount,
+      label: xferLabel.trim() || 'Virement',
+    })
+    setState(ensureLinkedCategories(loadBudget()))
+    setXferAmount('')
   }
 
   function addAccount(e: FormEvent) {
@@ -763,6 +789,15 @@ export function BudgetTool({ onBack }: Props) {
                       {t.status === 'planned' && (
                         <em className="badge">planifiée</em>
                       )}
+                      {t.transferGroupId && (
+                        <em className="badge">virement</em>
+                      )}
+                      {t.source?.tool === 'savings' && (
+                        <em className="badge">épargne</em>
+                      )}
+                      {t.source?.tool === 'debts' && (
+                        <em className="badge">dette</em>
+                      )}
                     </strong>
                     <span>
                       {t.date} · {nameOf(state.categories, t.categoryId)} ·{' '}
@@ -1044,6 +1079,60 @@ export function BudgetTool({ onBack }: Props) {
 
       {tab === 'accounts' && (
         <section className="panel">
+          <form className="composer inline" onSubmit={submitTransfer}>
+            <h2>Virement entre comptes</h2>
+            <label>
+              Depuis
+              <select
+                value={xferFrom || state.accounts[0]?.id || ''}
+                onChange={(e) => setXferFrom(e.target.value)}
+              >
+                {state.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Vers
+              <select
+                value={
+                  xferTo ||
+                  state.accounts[1]?.id ||
+                  state.accounts[0]?.id ||
+                  ''
+                }
+                onChange={(e) => setXferTo(e.target.value)}
+              >
+                {state.accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Montant (€)
+              <input
+                inputMode="decimal"
+                value={xferAmount}
+                onChange={(e) => setXferAmount(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Libellé
+              <input
+                value={xferLabel}
+                onChange={(e) => setXferLabel(e.target.value)}
+              />
+            </label>
+            <button type="submit" className="primary">
+              Virer
+            </button>
+          </form>
+
           <form className="composer inline" onSubmit={addAccount}>
             <h2>Nouveau compte</h2>
             <label>
